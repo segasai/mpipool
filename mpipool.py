@@ -175,40 +175,33 @@ class MPIPool(object):
         else:
             # Perform load-balancing. The order of the results are likely to
             # be different from the previous case.
-            for i, task in enumerate(tasks[0:self.size]):
-                worker = i+1
-                if self.debug:
-                    print("Sent task {0} to worker {1} with tag {2}."
-                          .format(task, worker, i))
-                # Send out the tasks asynchronously.
-                self.comm.isend(task, dest=worker, tag=i)
-
-            ntasks_dispatched = self.size
-            results = [None]*ntask
-            for itask in range(ntask):
+            freeworkers = range(1, self.size)
+            ntask_submitted = 0
+            ntask_received = 0
+            results = [None] * ntask
+            while ntask_received != ntask:
+                if len(freeworkers) > 0 and (ntask_submitted < ntask):
+                    worker = freeworkers.pop()
+                    task = tasks[ntask_submitted]
+                    if self.debug:
+                        print("Sent task {0} to worker {1} with tag {2}."
+                              .format(task, worker, ntask_submitted))
+                    self.comm.isend(task, dest=worker, 
+                        tag=ntask_submitted)
+                    ntask_submitted += 1
+                    continue
                 status = MPI.Status()
-                # Receive input from workers.
                 result = self.comm.recv(source=MPI.ANY_SOURCE,
                                         tag=MPI.ANY_TAG, status=status)
                 worker = status.source
                 i = status.tag
+                freeworkers.append(worker)
                 results[i] = result
                 if self.debug:
                     print("Master received from worker {0} with tag {1}"
                           .format(worker, i))
 
-                # Now send the next task to this idle worker (if there are any
-                # left).
-                if ntasks_dispatched < ntask:
-                    task = tasks[ntasks_dispatched]
-                    i = ntasks_dispatched
-                    if self.debug:
-                        print("Sent task {0} to worker {1} with tag {2}."
-                              .format(task, worker, i))
-                    # Send out the tasks asynchronously.
-                    self.comm.isend(task, dest=worker, tag=i)
-                    ntasks_dispatched += 1
-
+                ntask_received += 1 
             return results
 
     def bcast(self, *args, **kwargs):
